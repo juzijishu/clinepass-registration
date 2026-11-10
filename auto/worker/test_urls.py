@@ -1,0 +1,82 @@
+import unittest
+
+from urls import (
+    authkit_callback_pending,
+    authkit_callback_error,
+    classify_google,
+    google_ready_url,
+    identity_done_url,
+    microsoft_ready_url,
+    microsoft_step,
+    on_google_url,
+    on_identity_provider,
+    on_microsoft_url,
+    on_radar_url,
+    on_workos_url,
+    radar_send_url,
+)
+
+
+class URLTests(unittest.TestCase):
+    def test_policy_denied(self):
+        u = "https://authkit.cline.bot/?error=policy_denied&authorization_session_id=01ABC"
+        self.assertEqual(authkit_callback_error(u), "policy_denied")
+        self.assertEqual(authkit_callback_error("https://authkit.cline.bot/?authorization_session_id=01ABC"), "")
+
+    def test_callback_error_requires_known_callback_host(self):
+        for host in ("authkit.cline.bot", "APP.CLINE.BOT", "api.cline.bot", "auth.workos.com"):
+            with self.subTest(host=host):
+                self.assertEqual(authkit_callback_error(f"https://{host}/callback?error=policy_denied"), "policy_denied")
+        for raw in (
+            "https://login.live.com/?error=policy_denied",
+            "https://example.invalid/?error=policy_denied",
+            "https://authkit.cline.bot.example.invalid/?error=policy_denied",
+            "https://authkit.cline.bot/?redirect_uri=https%3A%2F%2Fexample.invalid%2F%3Ferror%3Dpolicy_denied",
+        ):
+            with self.subTest(url=raw):
+                self.assertEqual(authkit_callback_error(raw), "")
+
+    def test_callback_pending(self):
+        login = "https://authkit.cline.bot/?redirect_uri=https%3A%2F%2Fapi.cline.bot%2Fapi%2Fv1%2Fauth%2Fcallback&authorization_session_id=01ABC"
+        self.assertTrue(authkit_callback_pending(login))
+        self.assertFalse(authkit_callback_pending("https://authkit.cline.bot/radar-challenge/send?authorization_session_id=01ABC"))
+        self.assertFalse(authkit_callback_pending("https://authkit.cline.bot/sign-up"))
+        self.assertFalse(authkit_callback_pending("https://app.cline.bot/dashboard"))
+
+    def test_microsoft_host(self):
+        self.assertTrue(on_microsoft_url("https://login.live.com/oauth20_authorize.srf"))
+        self.assertFalse(on_microsoft_url("https://authkit.cline.bot/sign-up"))
+
+    def test_google_classify(self):
+        self.assertEqual(classify_google("https://accounts.google.com/signin/oauth"), "consent")
+        self.assertEqual(classify_google("https://accounts.google.com/challenge/pwd"), "password")
+
+    def test_microsoft_step(self):
+        self.assertEqual(microsoft_step(True, True, False), "email")
+        self.assertEqual(microsoft_step(True, True, True), "password")
+        self.assertEqual(microsoft_step(False, True, False), "password")
+
+    def test_microsoft_ready_ignores_workos(self):
+        workos = "https://auth.workos.com/sso/oauth/microsoft/abc/callback"
+        self.assertTrue(on_workos_url(workos))
+        self.assertFalse(microsoft_ready_url(workos))
+        self.assertTrue(microsoft_ready_url("https://login.live.com/oauth20_authorize.srf"))
+        self.assertTrue(google_ready_url("https://accounts.google.com/signin"))
+
+    def test_google_oauth_id_is_not_radar_or_done(self):
+        oauth = "https://accounts.google.com/signin/oauth/id?authuser=0&client_id=941048379330.apps.googleusercontent.com"
+        self.assertTrue(on_google_url(oauth))
+        self.assertTrue(on_identity_provider(oauth))
+        self.assertFalse(on_radar_url(oauth))
+        self.assertFalse(identity_done_url(oauth))
+        self.assertTrue(identity_done_url("https://authkit.cline.bot/radar-challenge/send?user_id=1"))
+
+    def test_radar_send_url(self):
+        self.assertIn(
+            "radar-challenge/send",
+            radar_send_url("https://authkit.cline.bot/radar-challenge/verify?x=1"),
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
